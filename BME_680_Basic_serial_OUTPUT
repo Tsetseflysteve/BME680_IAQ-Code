@@ -1,0 +1,158 @@
+/*
+ * Please find this basic code below for the BME680. Unfortunately, the BME680's internal AQI only works with the FireBeetle ESP8266 IoT Microcontroller.
+ * After exploring forums and datasheets for the sensor's resistance levels and outputs, as well as developing an algorithm, I've created a solution that should work with:
+ * - ESP32 Dev Kit
+ * - ESP S3 32S
+ * - Arduino UNO
+ * - Arduino Mega
+ * Adjust header files and other supporting libraries to suit your needs, as this is an I2C device.
+ * The BME680 library is required, and typically, you don't need to manually include the math library using #include <math.h> or #include <cmath>,
+ * as it is included by default in the standard Arduino environment.
+ * However, if you're working in a different environment or with plain C/C++ files, you might need to include it explicitly.
+ */
+
+/* You can use an accurate altitude to calibrate sea level air pressure. 
+ * And then use this calibrated sea level pressure as a reference to obtain the calibrated altitude.
+ * In this case, 33.0m is my locations accurate altitude.
+ */
+
+      //basic
+      #include <Arduino.h>
+      #include <Wire.h>
+      #include <math.h>
+
+
+      //BME680
+      #include "DFRobot_BME680_I2C.h"
+      #define CALIBRATE_PRESSURE
+      DFRobot_BME680_I2C bme(0x77);
+
+      
+      float seaLevel; 
+      // Forward declarations
+      float getGasResistance();
+      float getHumidity();
+      float calculateCompensatedGas(float R_gas, float hum);
+      int mapToAirQualityIndex(float comp_gas);
+
+
+      // Placeholder for getting gas resistance (implement this based on your sensor setup)
+      float getGasResistance() {
+      // Placeholder: return actual gas resistance reading from BME680
+       return bme.readGasResistance();
+}
+
+
+      // Placeholder for getting humidity (implement this based on your sensor setup)
+      float getHumidity() {
+      // Placeholder: return actual humidity reading from BME680
+      return bme.readHumidity() / 1000.0; // Adjust based on how your library represents humidity
+}
+
+void setup()
+{
+  uint8_t rslt = 1;
+  Serial.begin(115200);
+  Wire.begin(21, 19);
+
+//BME680  
+
+  while(!Serial);
+  delay(1000);
+  while(rslt != 0) {
+  rslt = bme.begin();
+  if(rslt != 0) {
+  Serial.println("BME Fail");
+  delay(1000);
+
+    }
+  }
+ 
+  Serial.println("BME ok");
+  delay(1000);
+  #ifdef CALIBRATE_PRESSURE
+  bme.startConvert();
+  delay(1000);
+  bme.update();
+
+  
+  /*You can use an accurate altitude to calibrate sea level air pressure. 
+   *And then use this calibrated sea level pressure as a reference to obtain the calibrated altitude.
+   *In this case, 33.0m is accurate altitude for my location.
+   */
+  seaLevel = bme.readSeaLevel(33.0); 
+
+
+
+  Serial.print("seaLevel :  ");
+  Serial.println(seaLevel);
+  delay(1000);
+
+  #endif
+  
+}
+
+void loop(){
+
+
+
+     bme.startConvert();
+     delay(100);
+     bme.update();
+
+  float temperature = bme.readTemperature() / 100.0;
+  float humidity = bme.readHumidity() / 1000.0;
+  float pressure = bme.readPressure() / 100.0;
+  float psi = bme.readPressure() * 0.000145038; // Just for my reference
+  float gasResistance = bme.readGasResistance();
+
+  // Compensated gas value calculation
+  float comp_gas = log(gasResistance) + 0.04 * log(gasResistance) / 100 * humidity; // Given algorithm
+  int airQualityIndex = mapToAirQualityIndex(comp_gas);
+  String BME680_Name = mapToAirQualityHVOC(airQualityIndex);
+
+
+
+
+        Serial.print("Temperature: ");     Serial.println(temperature);
+        Serial.print("Humidity   : ");     Serial.println(humidity); 
+        Serial.print("hPa        : ");     Serial.println(pressure);
+        Serial.print("BME        : ");     Serial.println(airQualityIndex); 
+        Serial.print("nGas: Ohms : ");     Serial.println(gasResistance);   //  If needed to check BME680's internal resistance level for cross referencing data gasResistance
+        Serial.print("VOC        : ");      Serial.println(BME680_Name);    
+        Serial.println("---------------------------------");
+
+        delay(2500);
+  
+  }
+
+
+
+
+// This function maps the compensated gas value to an air quality index
+
+// Assuming higher comp_gas values indicate better air quality
+
+  int mapToAirQualityIndex(float comp_gas) 
+  
+{
+  if(comp_gas >= 11.33) return        0;  // Excellent
+  else if(comp_gas >= 11.) return     1;  // Good
+  else if(comp_gas >= 10.354) return  2;  // Lightly Polluted
+  else if(comp_gas >= 9.366) return   3;  // Moderately Polluted
+  else if(comp_gas >= 7.378) return   4;  // Heavily Polluted
+  else return                         5;                        // Severe
+}
+
+  // This function maps the air quality index to an air quality NAME
+  
+  const char* mapToAirQualityHVOC(int airQualityIndex) 
+{
+  if(airQualityIndex == 0) return       "Excellent";
+  else if(airQualityIndex == 1) return  "Good";
+  else if(airQualityIndex == 2) return  "Poor";
+  else if(airQualityIndex == 3) return  "Very Poor";
+  else if(airQualityIndex == 4) return  "Ventilate";
+  else return                           "Evacuate"; // For airQualityIndex == 5 or any other value
+}
+
